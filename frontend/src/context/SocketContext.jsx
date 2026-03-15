@@ -13,7 +13,7 @@ export const SocketProvider = ({ children }) => {
     if (!user) return;
 
     const token = localStorage.getItem('token');
-    socketRef.current = io('http://localhost:5000', {
+    socketRef.current = io('https://chatpps.vercel.app', {
       auth: { token },
       transports: ['websocket'],
     });
