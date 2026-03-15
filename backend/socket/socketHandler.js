@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { encrypt, decrypt } = require('../utils/encryption');
 const User = require('../models/User');
 const Message = require('../models/Message');
 
@@ -34,19 +35,24 @@ const init = (io) => {
         const message = await Message.create({
           sender: userId,
           receiver: receiverId,
-          content,
+          content: encrypt(content),   // encrypted before saving to DB
           replyTo: replyTo || null
         });
         await message.populate('sender', 'username avatar');
         await message.populate('replyTo', 'content sender');
 
-        // Emit to sender
-        socket.emit('new_message', message);
+        // Decrypt content before sending over socket
+        const msgObj = message.toObject();
+        msgObj.content = decrypt(msgObj.content);
+        if (msgObj.replyTo && msgObj.replyTo.content) {
+          msgObj.replyTo = { ...msgObj.replyTo, content: decrypt(msgObj.replyTo.content) };
+        }
 
-        // Emit to receiver if online
+        // Emit decrypted message to sender & receiver
+        socket.emit('new_message', msgObj);
         const receiverSocketId = onlineUsers.get(receiverId);
         if (receiverSocketId) {
-          io.to(receiverSocketId).emit('new_message', message);
+          io.to(receiverSocketId).emit('new_message', msgObj);
         }
       } catch (err) {
         socket.emit('error', { message: err.message });

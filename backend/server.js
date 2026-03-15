@@ -10,19 +10,27 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map(o => o.trim());
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) callback(null, true);
+    else callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true
+};
+
 const io = new Server(server, {
-  cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
+  cors: { ...corsOptions, methods: ['GET', 'POST'] }
 });
 
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
-  credentials: true
-}));
+app.use(cors(corsOptions));
 app.use(express.json());
+
+// Health check (for Railway)
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
