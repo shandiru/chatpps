@@ -1,10 +1,6 @@
 const FriendRequest = require('../models/FriendRequest');
 const User = require('../models/User');
 
-// io is injected by server.js to allow socket emissions from controllers
-let _io = null;
-exports.setIo = (io) => { _io = io; };
-
 exports.sendRequest = async (req, res) => {
   try {
     const { receiverId } = req.body;
@@ -46,14 +42,6 @@ exports.respondRequest = async (req, res) => {
       await request.save();
       await User.findByIdAndUpdate(request.sender, { $addToSet: { friends: request.receiver } });
       await User.findByIdAndUpdate(request.receiver, { $addToSet: { friends: request.sender } });
-      // Notify sender in real-time that their request was accepted
-      if (_io) {
-        const { onlineUsers } = require('../socket/socketHandler');
-        const senderSocketId = onlineUsers && onlineUsers.get(request.sender.toString());
-        if (senderSocketId) {
-          _io.to(senderSocketId).emit('friend_request_accepted', { acceptedBy: req.user._id });
-        }
-      }
     } else {
       request.status = 'rejected';
       await request.save();
