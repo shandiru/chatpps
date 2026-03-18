@@ -18,11 +18,10 @@ function formatDate(date) {
 
 export default function ChatWindow({ friend, onMessageSent, onBack }) {
   const { user } = useAuth();
-  const { socket } = useSocket();
+  const { newMessages } = useSocket();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [replyTo, setReplyTo] = useState(null);
-  const [typing, setTyping] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const bottomRef = useRef(null);
   const typingTimerRef = useRef(null);
@@ -37,77 +36,55 @@ export default function ChatWindow({ friend, onMessageSent, onBack }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Listen to polled new messages and append relevant ones
   useEffect(() => {
-    if (!socket) return;
+    if (!newMessages?.length || !friend) return;
+    const relevant = newMessages.filter(msg => {
+      const senderId = msg.sender?._id || msg.sender;
+      return senderId === friend._id;
+    });
+    if (!relevant.length) return;
+    setMessages(prev => {
+      const existingIds = new Set(prev.map(m => m._id));
+      const incoming = relevant.filter(m => !existingIds.has(m._id));
+      if (!incoming.length) return prev;
+      return [...prev, ...incoming];
+    });
+    onMessageSent?.();
+  }, [newMessages, friend]);
 
-    const handleNewMessage = (msg) => {
-      const isRelevant =
-        (msg.sender._id === friend?._id && msg.receiver === user._id) ||
-        (msg.sender._id === user._id && msg.receiver === friend?._id);
-      if (isRelevant) {
-        setMessages(prev => {
-          const exists = prev.some(m => m._id === msg._id);
-          if (exists) return prev;
-          return [...prev, msg];
-        });
-        if (msg.sender._id === friend?._id) {
-          socket.emit('mark_read', { senderId: friend._id });
-          onMessageSent?.();
-        }
-      }
-    };
-
-    const handleTyping = ({ senderId, isTyping }) => {
-      if (senderId === friend?._id) setIsTyping(isTyping);
-    };
-
-    socket.on('new_message', handleNewMessage);
-    socket.on('typing', handleTyping);
-
-    return () => {
-      socket.off('new_message', handleNewMessage);
-      socket.off('typing', handleTyping);
-    };
-  }, [socket, friend, user]);
+  // Simple typing indicator — local only (show while user types, auto-clear)
+  const handleInputChange = (e) => {
+    setInput(e.target.value);
+    clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => setIsTyping(false), 1500);
+  };
 
   const loadMessages = async () => {
     try {
       const res = await api.get(`/messages/${friend._id}`);
       setMessages(res.data);
-      socket?.emit('mark_read', { senderId: friend._id });
       onMessageSent?.();
     } catch {}
-  };
-
-  const handleInputChange = (e) => {
-    setInput(e.target.value);
-    if (!typing) {
-      setTyping(true);
-      socket?.emit('typing', { receiverId: friend._id, isTyping: true });
-    }
-    clearTimeout(typingTimerRef.current);
-    typingTimerRef.current = setTimeout(() => {
-      setTyping(false);
-      socket?.emit('typing', { receiverId: friend._id, isTyping: false });
-    }, 1500);
   };
 
   const sendMessage = async (e) => {
     e?.preventDefault();
     if (!input.trim()) return;
-    clearTimeout(typingTimerRef.current);
-    socket?.emit('typing', { receiverId: friend._id, isTyping: false });
-    setTyping(false);
-
     const content = input.trim();
     setInput('');
     setReplyTo(null);
 
     try {
-      socket?.emit('send_message', {
+      const res = await api.post('/messages', {
         receiverId: friend._id,
         content,
         replyTo: replyTo?._id || null
+      });
+      // Optimistically add sent message to local state
+      setMessages(prev => {
+        const exists = prev.some(m => m._id === res.data._id);
+        return exists ? prev : [...prev, res.data];
       });
       onMessageSent?.();
     } catch {}
@@ -139,7 +116,6 @@ export default function ChatWindow({ friend, onMessageSent, onBack }) {
       {/* Header */}
       <div className="px-4 md:px-6 py-4 border-b border-border bg-parchment flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {/* Back button - mobile only */}
           {onBack && (
             <button onClick={onBack} className="md:hidden mr-1 p-1 text-sepia hover:text-ink transition-colors" aria-label="Back">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4l-6 6 6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -163,7 +139,6 @@ export default function ChatWindow({ friend, onMessageSent, onBack }) {
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-1">
         {Object.entries(grouped).map(([date, msgs]) => (
           <div key={date}>
-            {/* Date divider */}
             <div className="flex items-center gap-3 my-4">
               <hr className="flex-1 border-border" />
               <span className="text-xs text-sepia uppercase tracking-widest px-2">{date}</span>
@@ -173,7 +148,6 @@ export default function ChatWindow({ friend, onMessageSent, onBack }) {
             {msgs.map((msg, i) => {
               const isMine = msg.sender._id === user._id || msg.sender === user._id;
               const senderId = msg.sender._id || msg.sender;
-              const senderUsername = msg.sender.username || (isMine ? user.username : friend.username);
               const showAvatar = !isMine && (i === 0 || (msgs[i-1]?.sender?._id || msgs[i-1]?.sender) !== senderId);
 
               return (
@@ -181,7 +155,6 @@ export default function ChatWindow({ friend, onMessageSent, onBack }) {
                   key={msg._id}
                   className={`flex chat-bubble-enter ${isMine ? 'justify-end' : 'justify-start'} mb-1`}
                 >
-                  {/* Avatar placeholder for alignment */}
                   {!isMine && (
                     <div className="w-7 h-7 mt-1 mr-2 flex-shrink-0">
                       {showAvatar && (
@@ -193,7 +166,6 @@ export default function ChatWindow({ friend, onMessageSent, onBack }) {
                   )}
 
                   <div className={`max-w-xs lg:max-w-sm group relative`}>
-                    {/* Reply preview */}
                     {msg.replyTo && (
                       <div className={`mb-1 px-3 py-1.5 rounded-sm border-l-2 border-sepia bg-parchment/80 text-xs text-sepia truncate ${isMine ? 'text-right' : ''}`}>
                         <span className="font-medium">{msg.replyTo.sender?.username || '?'}: </span>
@@ -217,7 +189,6 @@ export default function ChatWindow({ friend, onMessageSent, onBack }) {
                       </span>
                     </div>
 
-                    {/* Reply hint on hover */}
                     <div className={`absolute top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none ${isMine ? '-left-6' : '-right-6'}`}>
                       <span className="text-sepia text-xs">↩</span>
                     </div>

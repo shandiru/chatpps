@@ -1,7 +1,9 @@
 import axios from 'axios';
 
+const BACKEND_URL = 'https://chatpps.vercel.app;
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: `${BACKEND_URL}/api`,
 });
 
 api.interceptors.request.use((config) => {

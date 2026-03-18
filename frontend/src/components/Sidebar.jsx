@@ -3,38 +3,31 @@ import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 
-export default function Sidebar({ selectedFriend, onSelectFriend, unreadCounts }) {
+export default function Sidebar({ selectedFriend, onSelectFriend, unreadCounts: propUnreadCounts }) {
   const { user, logout } = useAuth();
-  const { socket, onlineUsers } = useSocket();
+  const { onlineUsers, unreadCounts: pollUnreadCounts, friendRequestAlert, setFriendRequestAlert } = useSocket();
   const [friends, setFriends] = useState([]);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-  const [tab, setTab] = useState('friends'); // 'friends' | 'search' | 'requests'
+  const [tab, setTab] = useState('friends');
   const [notification, setNotification] = useState('');
+
+  // Merge unread counts from props and poll
+  const unreadCounts = { ...propUnreadCounts, ...pollUnreadCounts };
 
   useEffect(() => {
     fetchFriends();
     fetchPendingRequests();
   }, []);
 
-  // Real-time: refresh pending requests when a friend request arrives
+  // When polling detects a friend request, refresh the list
   useEffect(() => {
-    if (!socket) return;
-    const handleFriendRequest = () => {
+    if (friendRequestAlert) {
       fetchPendingRequests();
-    };
-    const handleFriendAccepted = () => {
-      fetchFriends();
-      fetchPendingRequests();
-    };
-    socket.on('friend_request_received', handleFriendRequest);
-    socket.on('friend_request_accepted', handleFriendAccepted);
-    return () => {
-      socket.off('friend_request_received', handleFriendRequest);
-      socket.off('friend_request_accepted', handleFriendAccepted);
-    };
-  }, [socket]);
+      setFriendRequestAlert(false);
+    }
+  }, [friendRequestAlert]);
 
   const fetchFriends = async () => {
     try {
@@ -63,8 +56,6 @@ export default function Sidebar({ selectedFriend, onSelectFriend, unreadCounts }
   const sendFriendRequest = async (receiverId) => {
     try {
       await api.post('/friends/request', { receiverId });
-      // Emit socket event so receiver gets real-time notification
-      socket?.emit('friend_request_sent', { receiverId });
       setNotification('Friend request sent!');
       setTimeout(() => setNotification(''), 3000);
     } catch (err) {
