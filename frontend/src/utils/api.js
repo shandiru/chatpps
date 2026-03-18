@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const BACKEND_URL = 'https://chatpps.vercel.app;
+const BACKEND_URL = 'https://chatpps.vercel.app';
 
 const api = axios.create({
   baseURL: `${BACKEND_URL}/api`,
